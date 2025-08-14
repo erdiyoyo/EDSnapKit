@@ -5,7 +5,7 @@
 //  Created by erdi on 2025/5/23.
 //
 
-import UIKit
+iimport UIKit
 
 // MARK: - UIView + UILayoutGuide + snp
 public extension UIView {
@@ -45,11 +45,10 @@ public class ConstraintViewDSL {
     }
 }
 
-// MARK: - 约束构造器
+// MARK: - ConstraintMaker
 public class ConstraintMaker {
     weak var view: UIView?
     weak var guide: UILayoutGuide?
-    var constraints: [NSLayoutConstraint] = []
     var pendingItems: [ConstraintItem] = []
     
     init(view: UIView?, guide: UILayoutGuide? = nil) {
@@ -82,31 +81,39 @@ public class ConstraintMaker {
     func install() -> [NSLayoutConstraint] {
         var installed: [NSLayoutConstraint] = []
         for item in pendingItems {
+            guard let firstItem = item.viewOrGuide else { continue }
+            
             let constraint: NSLayoutConstraint
             if item.attribute == .width || item.attribute == .height, item.targetView == nil, item.targetGuide == nil {
-                constraint = NSLayoutConstraint(item: item.viewOrGuide,
+                constraint = NSLayoutConstraint(item: firstItem,
                                                 attribute: item.attribute,
                                                 relatedBy: item.relation,
-                                                toItem: nil, attribute: .notAnAttribute,
-                                                multiplier: item.multiplier, constant: item.constant)
+                                                toItem: nil,
+                                                attribute: .notAnAttribute,
+                                                multiplier: item.multiplier,
+                                                constant: item.constant)
             } else {
-                let toItem: Any = item.targetView ?? item.targetGuide ?? item.viewOrGuide.superview!
+                let toItem: Any = item.targetView ?? item.targetGuide ?? item.superviewOrOwningView!
                 let toAttr = item.targetAttr ?? item.attribute
-                constraint = NSLayoutConstraint(item: item.viewOrGuide,
+                constraint = NSLayoutConstraint(item: firstItem,
                                                 attribute: item.attribute,
                                                 relatedBy: item.relation,
-                                                toItem: toItem, attribute: toAttr,
-                                                multiplier: item.multiplier, constant: item.constant)
+                                                toItem: toItem,
+                                                attribute: toAttr,
+                                                multiplier: item.multiplier,
+                                                constant: item.constant)
             }
+            
             constraint.priority = item.priority
             installed.append(constraint)
         }
+        
         NSLayoutConstraint.activate(installed)
         return installed
     }
 }
 
-// MARK: - 单个约束元素
+// MARK: - ConstraintItem
 public class ConstraintItem {
     weak var view: UIView?
     weak var guide: UILayoutGuide?
@@ -127,10 +134,15 @@ public class ConstraintItem {
         self.attribute = attribute
     }
     
-    var viewOrGuide: Any {
-        return view ?? guide!
+    var viewOrGuide: Any? {
+        return view ?? guide
     }
     
+    var superviewOrOwningView: UIView? {
+        return view?.superview ?? guide?.owningView
+    }
+    
+    // MARK: - equalTo / equalToSuperview
     @discardableResult
     public func equalTo(_ other: Any) -> Self {
         if let v = other as? UIView {
@@ -154,44 +166,33 @@ public class ConstraintItem {
     }
     
     @discardableResult
-    public func lessThanOrEqualTo(_ other: Any) -> Self {
-        relation = .lessThanOrEqual
-        return equalTo(other)
-    }
-    
-    @discardableResult
-    public func greaterThanOrEqualTo(_ other: Any) -> Self {
-        relation = .greaterThanOrEqual
-        return equalTo(other)
-    }
-    
-    @discardableResult
-    public func offset(_ value: CGFloat) -> Self {
-        constant = value
-        return self
-    }
-    
-    @discardableResult
-    public func inset(_ value: CGFloat) -> Self {
-        if attribute == .right || attribute == .bottom || attribute == .trailing {
-            constant = -value
-        } else {
-            constant = value
+    public func equalToSuperview() -> Self {
+        if let v = view?.superview {
+            targetView = v
+            targetAttr = attribute
+        } else if let g = guide?.owningView {
+            targetView = g
+            targetAttr = attribute
         }
         return self
     }
     
     @discardableResult
-    public func multipliedBy(_ value: CGFloat) -> Self {
-        multiplier = value
-        return self
-    }
+    public func lessThanOrEqualTo(_ other: Any) -> Self { relation = .lessThanOrEqual; return equalTo(other) }
+    @discardableResult
+    public func greaterThanOrEqualTo(_ other: Any) -> Self { relation = .greaterThanOrEqual; return equalTo(other) }
     
     @discardableResult
-    public func priority(_ value: UILayoutPriority) -> Self {
-        priority = value
+    public func offset(_ value: CGFloat) -> Self { constant = value; return self }
+    @discardableResult
+    public func inset(_ value: CGFloat) -> Self {
+        constant = (attribute == .right || attribute == .bottom || attribute == .trailing) ? -value : value
         return self
     }
+    @discardableResult
+    public func multipliedBy(_ value: CGFloat) -> Self { multiplier = value; return self }
+    @discardableResult
+    public func priority(_ value: UILayoutPriority) -> Self { priority = value; return self }
 }
 
 // MARK: - edges / size / center
