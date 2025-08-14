@@ -69,6 +69,8 @@ public class ConstraintMaker {
     
     func install() -> [NSLayoutConstraint] {
         guard let view = view else { return [] }
+        var installed: [NSLayoutConstraint] = []
+        
         for item in pendingItems {
             let constraint: NSLayoutConstraint
             if item.attribute == .width || item.attribute == .height, item.targetView == nil {
@@ -85,10 +87,11 @@ public class ConstraintMaker {
                                                 multiplier: item.multiplier, constant: item.constant)
             }
             constraint.priority = item.priority
-            constraints.append(constraint)
+            installed.append(constraint)
         }
-        NSLayoutConstraint.activate(constraints)
-        return constraints
+        
+        NSLayoutConstraint.activate(installed)
+        return installed
     }
 }
 
@@ -108,38 +111,42 @@ public class ConstraintItem {
         self.attribute = attribute
     }
     
-    public func equalToSuperview() -> Self {
-        self.targetView = view?.superview
-        self.targetAttr = attribute
-        return self
-    }
-    
+    @discardableResult
     public func equalTo(_ other: Any) -> Self {
         if let v = other as? UIView {
             self.targetView = v
             self.targetAttr = attribute
+        } else if let item = other as? ConstraintItem {
+            self.targetView = item.view
+            self.targetAttr = item.attribute
         } else if let num = other as? CGFloat {
             self.targetView = nil
             self.constant = num
+        } else {
+            fatalError("equalTo: unsupported type")
         }
         return self
     }
     
+    @discardableResult
     public func lessThanOrEqualTo(_ other: Any) -> Self {
         relation = .lessThanOrEqual
         return equalTo(other)
     }
     
+    @discardableResult
     public func greaterThanOrEqualTo(_ other: Any) -> Self {
         relation = .greaterThanOrEqual
         return equalTo(other)
     }
     
+    @discardableResult
     public func offset(_ value: CGFloat) -> Self {
         self.constant = value
         return self
     }
     
+    @discardableResult
     public func inset(_ value: CGFloat) -> Self {
         if attribute == .right || attribute == .bottom || attribute == .trailing {
             self.constant = -value
@@ -149,11 +156,13 @@ public class ConstraintItem {
         return self
     }
     
+    @discardableResult
     public func multipliedBy(_ value: CGFloat) -> Self {
         self.multiplier = value
         return self
     }
     
+    @discardableResult
     public func priority(_ value: UILayoutPriority) -> Self {
         self.priority = value
         return self
@@ -165,18 +174,22 @@ public class ConstraintEdges {
     weak var maker: ConstraintMaker?
     init(maker: ConstraintMaker?) { self.maker = maker }
     
-    public func equalToSuperview() {
+    @discardableResult
+    public func equalToSuperview() -> Self {
         maker?.top.equalToSuperview()
         maker?.left.equalToSuperview()
         maker?.right.equalToSuperview()
         maker?.bottom.equalToSuperview()
+        return self
     }
     
-    public func inset(_ value: CGFloat) {
+    @discardableResult
+    public func inset(_ value: CGFloat) -> Self {
         maker?.top.inset(value).equalToSuperview()
         maker?.left.inset(value).equalToSuperview()
         maker?.right.inset(value).equalToSuperview()
         maker?.bottom.inset(value).equalToSuperview()
+        return self
     }
 }
 
@@ -184,9 +197,11 @@ public class ConstraintSize {
     weak var maker: ConstraintMaker?
     init(maker: ConstraintMaker?) { self.maker = maker }
     
-    public func equalTo(_ size: CGSize) {
+    @discardableResult
+    public func equalTo(_ size: CGSize) -> Self {
         maker?.width.equalTo(size.width)
         maker?.height.equalTo(size.height)
+        return self
     }
 }
 
@@ -194,8 +209,17 @@ public class ConstraintCenter {
     weak var maker: ConstraintMaker?
     init(maker: ConstraintMaker?) { self.maker = maker }
     
-    public func equalToSuperview() {
+    @discardableResult
+    public func equalToSuperview() -> Self {
         maker?.centerX.equalToSuperview()
         maker?.centerY.equalToSuperview()
+        return self
+    }
+    
+    @discardableResult
+    public func equalTo(_ view: UIView) -> Self {
+        maker?.centerX.equalTo(view)
+        maker?.centerY.equalTo(view)
+        return self
     }
 }
