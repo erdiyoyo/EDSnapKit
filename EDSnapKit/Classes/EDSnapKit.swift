@@ -7,28 +7,35 @@
 
 import UIKit
 
-// MARK: - UIView + snp
+// MARK: - UIView + UILayoutGuide + snp
 public extension UIView {
     var snp: ConstraintViewDSL { ConstraintViewDSL(view: self) }
+}
+
+public extension UILayoutGuide {
+    var snp: ConstraintViewDSL { ConstraintViewDSL(guide: self) }
 }
 
 // MARK: - DSL 入口
 public class ConstraintViewDSL {
     weak var view: UIView?
+    weak var guide: UILayoutGuide?
+    
     init(view: UIView) { self.view = view }
+    init(guide: UILayoutGuide) { self.guide = guide }
     
     @discardableResult
     public func makeConstraints(_ closure: (ConstraintMaker) -> Void) -> [NSLayoutConstraint] {
-        guard let view = view else { return [] }
-        view.translatesAutoresizingMaskIntoConstraints = false
-        let maker = ConstraintMaker(view: view)
+        let maker = ConstraintMaker(view: view, guide: guide)
         closure(maker)
         return maker.install()
     }
     
     @discardableResult
     public func remakeConstraints(_ closure: (ConstraintMaker) -> Void) -> [NSLayoutConstraint] {
-        view?.removeConstraints(view?.constraints ?? [])
+        if let view = view {
+            view.removeConstraints(view.constraints)
+        }
         return makeConstraints(closure)
     }
     
@@ -41,11 +48,16 @@ public class ConstraintViewDSL {
 // MARK: - 约束构造器
 public class ConstraintMaker {
     weak var view: UIView?
+    weak var guide: UILayoutGuide?
     var constraints: [NSLayoutConstraint] = []
     var pendingItems: [ConstraintItem] = []
     
-    init(view: UIView) { self.view = view }
+    init(view: UIView?, guide: UILayoutGuide? = nil) {
+        self.view = view
+        self.guide = guide
+    }
     
+    // MARK: - 单点约束
     public var top: ConstraintItem { item(.top) }
     public var bottom: ConstraintItem { item(.bottom) }
     public var left: ConstraintItem { item(.left) }
@@ -62,26 +74,26 @@ public class ConstraintMaker {
     public var center: ConstraintCenter { ConstraintCenter(maker: self) }
     
     private func item(_ attr: NSLayoutConstraint.Attribute) -> ConstraintItem {
-        let i = ConstraintItem(view: view, attribute: attr)
+        let i = ConstraintItem(view: view, guide: guide, attribute: attr)
         pendingItems.append(i)
         return i
     }
     
     func install() -> [NSLayoutConstraint] {
-        guard let view = view else { return [] }
         var installed: [NSLayoutConstraint] = []
-        
         for item in pendingItems {
             let constraint: NSLayoutConstraint
-            if item.attribute == .width || item.attribute == .height, item.targetView == nil {
-                constraint = NSLayoutConstraint(item: view, attribute: item.attribute,
+            if item.attribute == .width || item.attribute == .height, item.targetView == nil, item.targetGuide == nil {
+                constraint = NSLayoutConstraint(item: item.viewOrGuide,
+                                                attribute: item.attribute,
                                                 relatedBy: item.relation,
                                                 toItem: nil, attribute: .notAnAttribute,
                                                 multiplier: item.multiplier, constant: item.constant)
             } else {
-                let toItem = item.targetView ?? view.superview!
+                let toItem: Any = item.targetView ?? item.targetGuide ?? item.viewOrGuide.superview!
                 let toAttr = item.targetAttr ?? item.attribute
-                constraint = NSLayoutConstraint(item: view, attribute: item.attribute,
+                constraint = NSLayoutConstraint(item: item.viewOrGuide,
+                                                attribute: item.attribute,
                                                 relatedBy: item.relation,
                                                 toItem: toItem, attribute: toAttr,
                                                 multiplier: item.multiplier, constant: item.constant)
@@ -89,7 +101,6 @@ public class ConstraintMaker {
             constraint.priority = item.priority
             installed.append(constraint)
         }
-        
         NSLayoutConstraint.activate(installed)
         return installed
     }
@@ -98,32 +109,46 @@ public class ConstraintMaker {
 // MARK: - 单个约束元素
 public class ConstraintItem {
     weak var view: UIView?
+    weak var guide: UILayoutGuide?
     let attribute: NSLayoutConstraint.Attribute
+    
     var relation: NSLayoutConstraint.Relation = .equal
     var targetView: UIView?
+    var targetGuide: UILayoutGuide?
     var targetAttr: NSLayoutConstraint.Attribute?
+    
     var constant: CGFloat = 0
     var multiplier: CGFloat = 1
     var priority: UILayoutPriority = .required
     
-    init(view: UIView?, attribute: NSLayoutConstraint.Attribute) {
+    init(view: UIView?, guide: UILayoutGuide?, attribute: NSLayoutConstraint.Attribute) {
         self.view = view
+        self.guide = guide
         self.attribute = attribute
+    }
+    
+    var viewOrGuide: Any {
+        return view ?? guide!
     }
     
     @discardableResult
     public func equalTo(_ other: Any) -> Self {
         if let v = other as? UIView {
-            self.targetView = v
-            self.targetAttr = attribute
+            targetView = v
+            targetAttr = attribute
+        } else if let g = other as? UILayoutGuide {
+            targetGuide = g
+            targetAttr = attribute
         } else if let item = other as? ConstraintItem {
-            self.targetView = item.view
-            self.targetAttr = item.attribute
+            targetView = item.view
+            targetGuide = item.guide
+            targetAttr = item.attribute
         } else if let num = other as? CGFloat {
-            self.targetView = nil
-            self.constant = num
+            targetView = nil
+            targetGuide = nil
+            constant = num
         } else {
-            fatalError("equalTo: unsupported type")
+            fatalError("equalTo: unsupported type \(type(of: other))")
         }
         return self
     }
@@ -142,29 +167,29 @@ public class ConstraintItem {
     
     @discardableResult
     public func offset(_ value: CGFloat) -> Self {
-        self.constant = value
+        constant = value
         return self
     }
     
     @discardableResult
     public func inset(_ value: CGFloat) -> Self {
         if attribute == .right || attribute == .bottom || attribute == .trailing {
-            self.constant = -value
+            constant = -value
         } else {
-            self.constant = value
+            constant = value
         }
         return self
     }
     
     @discardableResult
     public func multipliedBy(_ value: CGFloat) -> Self {
-        self.multiplier = value
+        multiplier = value
         return self
     }
     
     @discardableResult
     public func priority(_ value: UILayoutPriority) -> Self {
-        self.priority = value
+        priority = value
         return self
     }
 }
@@ -220,6 +245,13 @@ public class ConstraintCenter {
     public func equalTo(_ view: UIView) -> Self {
         maker?.centerX.equalTo(view)
         maker?.centerY.equalTo(view)
+        return self
+    }
+    
+    @discardableResult
+    public func equalTo(_ guide: UILayoutGuide) -> Self {
+        maker?.centerX.equalTo(guide)
+        maker?.centerY.equalTo(guide)
         return self
     }
 }
